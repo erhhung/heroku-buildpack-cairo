@@ -3,18 +3,17 @@
 
 set -e # fail fast
 
+arrow() {
+  sed -u 's/^/-----> /'
+}
+indent() {
+  sed -u 's/^/       /'
+}
+
 # parse params
 BUILD_DIR=$1
 CACHE_DIR=$2
 BUILDPACK_NAME=cairo
-
-function indent() {
-  c='s/^/       /'
-  case $(uname) in
-    Darwin) sed -l "$c";;
-    *)      sed -u "$c";;
-  esac
-}
 
 function vendor() {
   binary="$1"
@@ -27,70 +26,66 @@ function vendor() {
   if [ -d "$path/bin" ]; then
     export PATH=$path/bin:$PATH
   fi
-
   if [ -d "$path/lib/pkgconfig" ]; then
     # pkg-config should handle compiler options (if used)
     export PKG_CONFIG_PATH="$path/lib/pkgconfig:$PKG_CONFIG_PATH"
   fi
 
   # standard paths
+  export LD_LIBRARY_PATH="$path/lib:$LD_LIBRARY_PATH"
+  export LIBRARY_PATH="$path/lib:$LIBRARY_PATH"
   export CPPPATH="$path/include:$CPPPATH"
   export CPATH="$path/include:$CPATH"
-  export LIBRARY_PATH="$path/lib:$LIBRARY_PATH"
-
-  export LD_LIBRARY_PATH="$path/lib:$LD_LIBRARY_PATH"
 }
 
-echo "-----> Vendoring binaries"
-vendor "https://s3.amazonaws.com/mojodna-heroku/$STACK/cairo-1.14.2-1.tar.gz"  "$BUILD_DIR/vendor/cairo"
+echo "Vendoring binaries" | arrow
+vendor "https://s3.amazonaws.com/mojodna-heroku/$STACK/cairo-1.14.2-1.tar.gz"   "$BUILD_DIR/vendor/cairo"
 vendor "https://s3.amazonaws.com/mojodna-heroku/$STACK/freetype-2.5.5-1.tar.gz" "$BUILD_DIR/vendor/freetype"
 vendor "https://s3.amazonaws.com/mojodna-heroku/$STACK/giflib-4.2.3-2.tar.gz"   "$BUILD_DIR/vendor/giflib"
 vendor "https://s3.amazonaws.com/mojodna-heroku/$STACK/pixman-0.32.6-2.tar.gz"  "$BUILD_DIR/vendor/pixman"
 
 if [ $STACK == "cedar-14" ]; then
-  vendor "https://s3.amazonaws.com/mojodna-heroku/$STACK/pango-1.36.8-1.tar.gz"  "$BUILD_DIR/vendor/pango"
-  vendor "https://s3.amazonaws.com/mojodna-heroku/$STACK/harfbuzz-0.9.39-1.tar.gz"  "$BUILD_DIR/vendor/harfbuzz"
-  vendor "https://s3.amazonaws.com/mojodna-heroku/$STACK/fontconfig-2.11.93-1.tar.gz"  "$BUILD_DIR/vendor/fontconfig"
+  vendor "https://s3.amazonaws.com/mojodna-heroku/$STACK/pango-1.36.8-1.tar.gz"       "$BUILD_DIR/vendor/pango"
+  vendor "https://s3.amazonaws.com/mojodna-heroku/$STACK/harfbuzz-0.9.39-1.tar.gz"    "$BUILD_DIR/vendor/harfbuzz"
+  vendor "https://s3.amazonaws.com/mojodna-heroku/$STACK/fontconfig-2.11.93-1.tar.gz" "$BUILD_DIR/vendor/fontconfig"
 else
-  echo
-  echo "-----> WARNING <-----"
-  echo
-  echo "You are using the cedar-10 stack--node-canvas 1.2.1 cannot build due to" | indent
-  echo "missing dependencies. Please consider updating to the cedar-14 stack:" | indent
-  echo "heroku stack:set cedar-14" | indent
+  echo "WARNING! You are using the cedar-10 stack. node-canvas 1.2.1 cannot build"    | indent
+  echo "due to missing dependencies. Please consider updating to the cedar-14 stack:" | indent
+  echo "heroku stack:set cedar-14"                                                    | indent
   echo
 fi
 
-echo "-----> Tweaking Cairo, FreeType, and Pixman include paths"
+echo "Tweaking Cairo, FreeType, and Pixman include paths" | arrow
 
 # node-canvas isn't using pkg-config, so we need to set non-standard paths
 export CPPPATH="$BUILD_DIR/vendor/cairo/include/cairo:$BUILD_DIR/vendor/pixman/include/pixman-1:$BUILD_DIR/vendor/freetype/include/freetype2:$BUILD_DIR/vendor/pango/include/pango-1.0:$CPPPATH"
 export CPATH="$BUILD_DIR/vendor/cairo/include/cairo:$BUILD_DIR/vendor/pixman/include/pixman-1:$BUILD_DIR/vendor/freetype/include/freetype2:$BUILD_DIR/vendor/pango/include/pango-1.0:$CPATH"
 
-echo "-----> Configuring build environment"
+echo "Setting up build environment" | arrow
 
 cat <<EOF > export
 export PATH="$PATH:\$PATH"
-export LD_LIBRARY_PATH="\$LD_LIBRARY_PATH:$LD_LIBRARY_PATH"
-export LIBRARY_PATH="\$LIBRARY_PATH:$LIBRARY_PATH"
-export PKG_CONFIG_PATH="\$PKG_CONFIG_PATH:$PKG_CONFIG_PATH"
-export CPPPATH="\$CPPPATH:$CPPPATH"
-export CPATH="\$CPATH:$CPATH"
+export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:\$PKG_CONFIG_PATH"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:\$LD_LIBRARY_PATH"
+export LIBRARY_PATH="$LIBRARY_PATH:\$LIBRARY_PATH"
+export CPPPATH="$CPPPATH:\$CPPPATH"
+export CPATH="$CPATH:\$CPATH"
 EOF
 
-echo "-----> Building runtime environment"
-mkdir -p $BUILD_DIR/.profile.d
+echo "Building runtime environment" | arrow
+mkdir -p "$BUILD_DIR/.profile.d"
 
-cat <<EOF > $BUILD_DIR/.profile.d/$BUILDPACK_NAME.sh
+cat <<EOF > "$BUILD_DIR/.profile.d/$BUILDPACK_NAME.sh"
 export PATH="${PATH//$BUILD_DIR//app}:\$PATH"
-export LD_LIBRARY_PATH="\$LD_LIBRARY_PATH:${LD_LIBRARY_PATH//$BUILD_DIR//app}"
-export LIBRARY_PATH="\$LIBRARY_PATH:${LIBRARY_PATH//$BUILD_DIR//app}"
-export PKG_CONFIG_PATH="\$PKG_CONFIG_PATH:${PKG_CONFIG_PATH//$BUILD_DIR//app}"
-export CPPPATH="\$CPPPATH:${CPPPATH//$BUILD_DIR//app}"
-export CPATH="\$CPATH:${CPATH//$BUILD_DIR//app}"
+export PKG_CONFIG_PATH="${PKG_CONFIG_PATH//$BUILD_DIR//app}:\$PKG_CONFIG_PATH"
+export LD_LIBRARY_PATH="${LD_LIBRARY_PATH//$BUILD_DIR//app}:\$LD_LIBRARY_PATH"
+export LIBRARY_PATH="${LIBRARY_PATH//$BUILD_DIR//app}:\$LIBRARY_PATH"
+export CPPPATH="${CPPPATH//$BUILD_DIR//app}:\$CPPPATH"
+export CPATH="${CPATH//$BUILD_DIR//app}:\$CPATH"
 EOF
 
-echo "NOTE: if you are experiencing problems, they may be resulting from a cached"
-echo "library referencing and older version of Cairo. To bypass this with the nodejs"
-echo "buildpack, set NODE_MODULES_CACHE=false to force node-canvas to be rebuilt"
-echo "against newer versions of the libraries."
+echo "NOTE: if you are experiencing problems, they may be resulting from a cached"    | indent
+echo "library referencing and older version of Cairo. To bypass this with the nodejs" | indent
+echo "buildpack, set NODE_MODULES_CACHE=false to force node-canvas to be rebuilt"     | indent
+echo "against newer versions of the libraries."                                       | indent
+echo
